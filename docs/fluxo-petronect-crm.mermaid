@@ -1,0 +1,27 @@
+%% Atualizado 25/08/2026 — multi-caixa (jbueno@, gmartinez@, vendas@, contato@) + camadas de dedup (DP-07)
+%% Desenho ainda não construído no Zoho Flow — ver claude/criterios-deduplicacao-multi-canal.md
+flowchart TD
+    A[Email chega em qualquer caixa ativa<br/>jbueno@, gmartinez@, vendas@, contato@...] --> B{Tem número de<br/>portal identificável?<br/>ex: Petronect}
+    B -->|Sim| C1[Busca Negócio pelo número<br/>campo único ex: Numero_Petronect]
+    B -->|Não| C2[Busca Negócio aberto do mesmo<br/>remetente, últimos ~45 dias]
+
+    C1 -->|Achou| D1[Não cria negócio novo<br/>trata como mensagem/atualização<br/>do negócio existente]
+    C1 -->|Não achou| E1[Cria Negócio novo<br/>grava a chave do portal]
+
+    C2 -->|Achou negócio do mesmo remetente| D1
+    C2 -->|Não achou, mas mesma empresa<br/>Conta tem negócio aberto recente| F[Cria Negócio novo<br/>+ marca Possivel_Duplicata<br/>+ tarefa de revisão humana]
+    C2 -->|Nenhuma coincidência| E1
+
+    E1 --> G[Move email para pasta da<br/>oportunidade, aplica tags]
+    F --> G
+    D1 --> G
+
+    G --> H[Workflow Rule dispara<br/>ao criar/atualizar o Negócio]
+    H --> I[Cria/atualiza Tarefa<br/>notifica responsável:<br/>sino CRM + email + push]
+    I --> J{Responsável avalia<br/>a oportunidade}
+    J -->|Cotar| K[Status = Cotado<br/>Data Limite Proposta obrigatória]
+    J -->|Declinar| L[Status = Declinado<br/>Estágio = Cancelado automático]
+    K --> M[Tarefa para gmartinez@autiam.com<br/>executar a proposta]
+    M --> N[Vincula fornecedor parceiro<br/>à oportunidade]
+    N --> O[Proposta enviada dentro do prazo]
+
