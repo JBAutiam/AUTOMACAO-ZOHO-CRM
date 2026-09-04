@@ -1,0 +1,15 @@
+{
+  "conferido_em": "2026-09-03",
+  "modulo": "Petronect_Logs",
+  "fonte": "Zoho CRM API getFields",
+  "criado_em": "2026-08-27",
+  "lacuna_conhecida": "Sem lookup para Deals. Uma falha de coleta nao aparece no registro do negocio. Ver docs/fluxo-pos-proposta-petronect.md, lacuna 3.",
+  "campos": [
+    { "api_name": "Name", "label": "Petronect Log Nome", "data_type": "text", "custom": false, "unique": false },
+    { "api_name": "Funcao", "label": "Funcao", "data_type": "text", "custom": true, "unique": false },
+    { "api_name": "Nivel", "label": "Nivel", "data_type": "picklist", "custom": true, "unique": false, "picklist": ["-None-", "INFO", "WARN", "ERROR"] },
+    { "api_name": "Mensagem", "label": "Mensagem", "data_type": "textarea", "custom": true, "unique": false, "length": 2000 },
+    { "api_name": "Contexto", "label": "Contexto", "data_type": "textarea", "custom": true, "unique": false, "length": 32000 },
+    { "api_name": "Data_Hora", "label": "Data Hora", "data_type": "datetime", "custom": true, "unique": false }
+  ]
+}
