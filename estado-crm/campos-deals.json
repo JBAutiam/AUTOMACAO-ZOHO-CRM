@@ -1,0 +1,320 @@
+{
+  "conferido_em": "2026-09-03",
+  "modulo": "Deals",
+  "campos": [
+    {
+      "api_name": "Amount",
+      "label": "Montante",
+      "data_type": "currency",
+      "custom": false,
+      "unique": false
+    },
+    {
+      "api_name": "Deal_Name",
+      "label": "Nome Negócio",
+      "data_type": "text",
+      "custom": false,
+      "unique": false
+    },
+    {
+      "api_name": "Closing_Date",
+      "label": "Data de Fechamento",
+      "data_type": "date",
+      "custom": false,
+      "unique": false
+    },
+    {
+      "api_name": "Account_Name",
+      "label": "Conta Nome",
+      "data_type": "lookup",
+      "custom": false,
+      "unique": false,
+      "lookup_para": "Accounts"
+    },
+    {
+      "api_name": "Stage",
+      "label": "Estágio",
+      "data_type": "picklist",
+      "custom": false,
+      "unique": false,
+      "picklist": [
+        "Qualification",
+        "Needs Analysis",
+        "Value Proposition",
+        "Id. Decision Makers",
+        "Proposal/Price Quote",
+        "Negotiation/Review",
+        "Closed Won",
+        "Closed Lost",
+        "Closed Lost to Competition",
+        "Identify Decision Makers",
+        "Prospeccao",
+        "Cancelado",
+        "Budget"
+      ]
+    },
+    {
+      "api_name": "Lead_Source",
+      "label": "Fonte de Cliente potencial",
+      "data_type": "picklist",
+      "custom": false,
+      "unique": false,
+      "picklist": [
+        "-None-",
+        "Sales Mail Alias",
+        "Chat",
+        "Web Download",
+        "Trade Show",
+        "OnlineStore",
+        "Seminar Partner",
+        "Web Research",
+        "PORTAIS ELETRONICO",
+        "Advertisement",
+        "REDES SOCIAIS",
+        "Employee Referral",
+        "External Referral",
+        "Public Relations",
+        "REPRESENTANTE",
+        "Seminar-Internal",
+        "SITE",
+        "Cold Call",
+        "Partner",
+        "VENDEDOR INTERNO"
+      ]
+    },
+    {
+      "api_name": "Data_Limite_Proposta",
+      "label": "Data Limite Proposta",
+      "data_type": "date",
+      "custom": true,
+      "unique": false
+    },
+    {
+      "api_name": "Status_Petronect",
+      "label": "Status Petronect",
+      "data_type": "picklist",
+      "custom": true,
+      "unique": false,
+      "picklist": [
+        "-None-",
+        "Pendente Análise",
+        "Cotado",
+        "Declinado"
+      ]
+    },
+    {
+      "api_name": "Fornecedor_Parceiro",
+      "label": "Fornecedor Parceiro",
+      "data_type": "lookup",
+      "custom": true,
+      "unique": false,
+      "lookup_para": "Vendors"
+    },
+    {
+      "api_name": "Data_Limite_Petronect",
+      "label": "Data Limite Petronect",
+      "data_type": "date",
+      "custom": true,
+      "unique": false
+    },
+    {
+      "api_name": "Origem_Automa_o",
+      "label": "Origem Automação",
+      "data_type": "picklist",
+      "custom": true,
+      "unique": false,
+      "picklist": [
+        "-None-",
+        "Zoho Flow",
+        "Rotina Cowork",
+        "Manual"
+      ]
+    },
+    {
+      "api_name": "Tarefa_Triagem_Criada",
+      "label": "Tarefa Triagem Criada",
+      "data_type": "boolean",
+      "custom": true,
+      "unique": false
+    },
+    {
+      "api_name": "Venderemos_o_que",
+      "label": "Venderemos  o que?",
+      "data_type": "picklist",
+      "custom": true,
+      "unique": false,
+      "picklist": [
+        "-None-",
+        "Equipamento",
+        "Serviços",
+        "Software",
+        "Solução"
+      ]
+    },
+    {
+      "api_name": "Numero_Petronect",
+      "label": "Numero Petronect",
+      "data_type": "text",
+      "custom": true,
+      "unique": true
+    },
+    {
+      "api_name": "Fase_Petronect",
+      "label": "Fase Petronect",
+      "data_type": "picklist",
+      "custom": true,
+      "unique": false,
+      "picklist": [
+        "-None-",
+        "Publicada",
+        "Em Cotacao",
+        "Proposta Enviada",
+        "Em Disputa",
+        "Em Analise",
+        "Homologada",
+        "Cancelada",
+        "Fracassada"
+      ]
+    },
+    {
+      "api_name": "Data_Hora_Limite",
+      "label": "Data Hora Limite",
+      "data_type": "datetime",
+      "custom": true,
+      "unique": false
+    },
+    {
+      "api_name": "Data_Abertura_Petronect",
+      "label": "Data Abertura Petronect",
+      "data_type": "datetime",
+      "custom": true,
+      "unique": false
+    },
+    {
+      "api_name": "Objeto_Licitacao",
+      "label": "Objeto Licitacao",
+      "data_type": "textarea",
+      "custom": true,
+      "unique": false
+    },
+    {
+      "api_name": "Unidade_Requisitante",
+      "label": "Unidade Requisitante",
+      "data_type": "text",
+      "custom": true,
+      "unique": false
+    },
+    {
+      "api_name": "Valor_Estimado",
+      "label": "Valor Estimado",
+      "data_type": "currency",
+      "custom": true,
+      "unique": false
+    },
+    {
+      "api_name": "Vencedor_Final",
+      "label": "Vencedor Final",
+      "data_type": "text",
+      "custom": true,
+      "unique": false
+    },
+    {
+      "api_name": "CNPJ_Vencedor",
+      "label": "CNPJ Vencedor",
+      "data_type": "text",
+      "custom": true,
+      "unique": false
+    },
+    {
+      "api_name": "Valor_Homologado",
+      "label": "Valor Homologado",
+      "data_type": "currency",
+      "custom": true,
+      "unique": false
+    },
+    {
+      "api_name": "Ultima_Sync_Petronect",
+      "label": "Ultima Sync Petronect",
+      "data_type": "datetime",
+      "custom": true,
+      "unique": false
+    },
+    {
+      "api_name": "Sync_Erro",
+      "label": "Sync Erro",
+      "data_type": "text",
+      "custom": true,
+      "unique": false
+    },
+    {
+      "api_name": "Termo_Busca_Origem",
+      "label": "Termo Busca Origem",
+      "data_type": "text",
+      "custom": true,
+      "unique": false
+    },
+    {
+      "api_name": "Familia_Petronect",
+      "label": "Familia Petronect",
+      "data_type": "text",
+      "custom": true,
+      "unique": false
+    },
+    {
+      "api_name": "Anexos_Sincronizados",
+      "label": "Anexos Sincronizados",
+      "data_type": "datetime",
+      "custom": true,
+      "unique": false
+    },
+    {
+      "api_name": "Qtd_Anexos",
+      "label": "Qtd Anexos",
+      "data_type": "integer",
+      "custom": true,
+      "unique": false
+    },
+    {
+      "api_name": "Pasta_WorkDrive_Criada",
+      "label": "Pasta WorkDrive Criada",
+      "data_type": "boolean",
+      "custom": true,
+      "unique": false
+    },
+    {
+      "api_name": "URL_Pasta_WorkDrive",
+      "label": "URL Pasta WorkDrive",
+      "data_type": "website",
+      "custom": true,
+      "unique": false
+    },
+    {
+      "api_name": "Codigo_Oportunidade_Direta",
+      "label": "Cód. Oportunidade Direta",
+      "data_type": "text",
+      "custom": true,
+      "unique": true
+    },
+    {
+      "api_name": "Chave_Dedup_Origem",
+      "label": "Chave Dedup Origem",
+      "data_type": "text",
+      "custom": true,
+      "unique": false
+    },
+    {
+      "api_name": "Possivel_Duplicata",
+      "label": "Possível Duplicata",
+      "data_type": "boolean",
+      "custom": true,
+      "unique": false
+    },
+    {
+      "api_name": "Pasta_Criada",
+      "label": "Pasta Criada",
+      "data_type": "datetime",
+      "custom": true,
+      "unique": false
+    }
+  ]
+}
