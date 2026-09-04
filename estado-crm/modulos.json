@@ -1,0 +1,54 @@
+{
+  "conferido_em": "2026-09-03",
+  "fonte": "Zoho CRM API getModules",
+  "modulos": [
+    {
+      "api_name": "Accounts",
+      "label": "Contas",
+      "tipo": "default",
+      "blueprint": true
+    },
+    {
+      "api_name": "Deals",
+      "label": "Negócios",
+      "tipo": "default",
+      "blueprint": true
+    },
+    {
+      "api_name": "Tasks",
+      "label": "Tarefas",
+      "tipo": "default",
+      "blueprint": true
+    },
+    {
+      "api_name": "Products",
+      "label": "Produtos",
+      "tipo": "default",
+      "blueprint": true
+    },
+    {
+      "api_name": "Vendors",
+      "label": "Fornecedores",
+      "tipo": "default",
+      "blueprint": true
+    },
+    {
+      "api_name": "Petronect_Itens",
+      "label": "Petronect Itens",
+      "tipo": "custom",
+      "blueprint": true
+    },
+    {
+      "api_name": "Petronect_Anexos",
+      "label": "Petronect Anexos",
+      "tipo": "custom",
+      "blueprint": true
+    },
+    {
+      "api_name": "Petronect_Logs",
+      "label": "Petronect Logs",
+      "tipo": "custom",
+      "blueprint": true
+    }
+  ]
+}
