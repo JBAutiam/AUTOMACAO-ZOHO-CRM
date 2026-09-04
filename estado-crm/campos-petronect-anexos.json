@@ -1,0 +1,17 @@
+{
+  "conferido_em": "2026-09-03",
+  "modulo": "Petronect_Anexos",
+  "fonte": "Zoho CRM API getFields",
+  "criado_em": "2026-08-27",
+  "campos": [
+    { "api_name": "Name", "label": "Petronect Anexo Nome", "data_type": "text", "custom": false, "unique": false },
+    { "api_name": "Chave_Anexo", "label": "Chave Anexo", "data_type": "text", "custom": true, "unique": true },
+    { "api_name": "Negocio", "label": "Negocio", "data_type": "lookup", "custom": true, "unique": false, "lookup_para": "Deals", "related_list": "Anexos Petronect" },
+    { "api_name": "Numero_Certame", "label": "Numero Certame", "data_type": "text", "custom": true, "unique": false },
+    { "api_name": "Nome_Arquivo", "label": "Nome Arquivo", "data_type": "text", "custom": true, "unique": false },
+    { "api_name": "URL_Anexo", "label": "URL Anexo", "data_type": "website", "custom": true, "unique": false },
+    { "api_name": "Tipo_Anexo", "label": "Tipo Anexo", "data_type": "text", "custom": true, "unique": false },
+    { "api_name": "Tamanho", "label": "Tamanho", "data_type": "text", "custom": true, "unique": false },
+    { "api_name": "Data_Coleta", "label": "Data Coleta", "data_type": "datetime", "custom": true, "unique": false }
+  ]
+}
