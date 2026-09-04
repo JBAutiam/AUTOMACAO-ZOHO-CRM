@@ -1,0 +1,98 @@
+{
+  "conferido_em": "2026-09-03",
+  "modulo": "Petronect_Itens",
+  "campos": [
+    {
+      "api_name": "Name",
+      "label": "Petronect Item Nome",
+      "data_type": "text",
+      "custom": false,
+      "unique": false
+    },
+    {
+      "api_name": "Chave_Item",
+      "label": "Chave Item",
+      "data_type": "text",
+      "custom": true,
+      "unique": true
+    },
+    {
+      "api_name": "Negocio",
+      "label": "Negocio",
+      "data_type": "lookup",
+      "custom": true,
+      "unique": false,
+      "lookup_para": "Deals"
+    },
+    {
+      "api_name": "Numero_Certame",
+      "label": "Numero Certame",
+      "data_type": "text",
+      "custom": true,
+      "unique": false
+    },
+    {
+      "api_name": "Item_Number",
+      "label": "Item Number",
+      "data_type": "integer",
+      "custom": true,
+      "unique": false
+    },
+    {
+      "api_name": "Codigo_Material",
+      "label": "Codigo Material",
+      "data_type": "text",
+      "custom": true,
+      "unique": false
+    },
+    {
+      "api_name": "Descricao_Especificacao",
+      "label": "Descricao Especificacao",
+      "data_type": "textarea",
+      "custom": true,
+      "unique": false
+    },
+    {
+      "api_name": "Familia",
+      "label": "Familia",
+      "data_type": "text",
+      "custom": true,
+      "unique": false
+    },
+    {
+      "api_name": "Quantidade",
+      "label": "Quantidade",
+      "data_type": "double",
+      "custom": true,
+      "unique": false
+    },
+    {
+      "api_name": "Unidade",
+      "label": "Unidade",
+      "data_type": "text",
+      "custom": true,
+      "unique": false
+    },
+    {
+      "api_name": "Preco_Autiam",
+      "label": "Preco Autiam",
+      "data_type": "currency",
+      "custom": true,
+      "unique": false
+    },
+    {
+      "api_name": "Palavra_Chave_Match",
+      "label": "Palavra Chave Match",
+      "data_type": "text",
+      "custom": true,
+      "unique": false
+    },
+    {
+      "api_name": "Interesse_Autiam",
+      "label": "Interesse Autiam",
+      "data_type": "boolean",
+      "custom": true,
+      "unique": false
+    }
+  ]
+}
