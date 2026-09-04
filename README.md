@@ -74,5 +74,3 @@ Dump conferido na API em 03/09/2026. A ideia é que a defasagem entre documenta�
 - **Nada de credencial neste repositório.** Sem token, sem senha de portal, sem chave de API. Se algum documento precisar referenciar um segredo, referencia o *nome* da variável, nunca o valor.
 - **Documento defasado é pior que documento ausente.** Ao mudar o CRM, regere o snapshot em `estado-crm/` no mesmo commit.
 - **Decisões são numeradas** (`DP-01`, `DP-02`, …) e nunca reindexadas — outros documentos as referenciam pelo número.
-# AUTOMACAO-ZOHO-CRM
-Autoamcoes no ZOho CRM para registro de contatos, cotas e oportunidades.
