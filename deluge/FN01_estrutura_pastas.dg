@@ -1,0 +1,298 @@
+/* =============================================================================
+   FN01_estrutura_pastas
+   ETAPA 1 — ao decidir Cotar, garantir a pasta da oportunidade no WorkDrive
+   com as 6 subpastas padrao.
+
+   Onde roda : Zoho CRM -> Configuracao -> Espaco do Desenvolvedor -> Funcoes
+   Disparo   : Regra de workflow WF-20 (ver SETUP.md), modulo Negocios,
+               condicao Status_Petronect = Cotado
+   Argumento : dealId (String) -- passar como ${Deals.Deal Id}
+
+   IDEMPOTENTE. Rodar duas vezes nao duplica pasta: antes de criar,
+   lista o conteudo do pai e reaproveita a pasta de mesmo nome.
+
+   Requisitos (ver SETUP.md):
+     - Conexao "workdrive_conn" com escopo WorkDrive.files.ALL
+     - Variavel de org WD_PASTA_PETRONECT com o folder_id de /NEGOCIOS/PETRONECT
+   ============================================================================= */
+
+void automation.FN01_estrutura_pastas(String dealId)
+{
+	WD_API = "https://www.zohoapis.com/workdrive/api/v1";
+	CONN = "workdrive_conn";
+
+	// As 6 subpastas padrao, na ordem. Nao mudar os prefixos numericos:
+	// eles ordenam a listagem e sao referenciados pelas FN02 e FN03.
+	SUBPASTAS = List();
+	SUBPASTAS.add("1 - DOC CLIENTE");
+	SUBPASTAS.add("2 - DOC FORNECEDOR");
+	SUBPASTAS.add("3 - PROPOSTA");
+	SUBPASTAS.add("4 - RESULTADO DA LICITACAO");
+	SUBPASTAS.add("5 - CONCORRENTES");
+	SUBPASTAS.add("6 - COMUNICADOS CLIENTE");
+
+	try
+	{
+		// ---- 1. Ler o negocio ----------------------------------------------
+		deal = zoho.crm.getRecordById("Deals", dealId.toLong());
+
+		if(deal == null || deal.isEmpty())
+		{
+			FN99_log("FN01", "ERROR", "Negocio nao encontrado", dealId, "");
+			return;
+		}
+
+		numero = ifnull(deal.get("Numero_Petronect"), "").trim();
+
+		if(numero == "")
+		{
+			FN99_log("FN01", "ERROR", "Numero_Petronect vazio - nao da para nomear a pasta", dealId, "");
+			zoho.crm.updateRecord("Deals", dealId.toLong(), {"Sync_Erro":"FN01: Numero_Petronect vazio"});
+			return;
+		}
+
+		// ---- 2. Pasta raiz da oportunidade ---------------------------------
+		// Se o negocio ja tem URL gravada, extrai o id de la. Senao procura
+		// pelo nome dentro de /NEGOCIOS/PETRONECT e, nao achando, cria.
+		raizId = "";
+		urlAtual = ifnull(deal.get("URL_Pasta_WorkDrive"), "");
+
+		if(urlAtual != "" && urlAtual.contains("/folder/"))
+		{
+			raizId = urlAtual.getSuffix("/folder/").trim();
+			if(raizId.contains("/"))
+			{
+				raizId = raizId.getPrefix("/");
+			}
+			if(raizId.contains("?"))
+			{
+				raizId = raizId.getPrefix("?");
+			}
+		}
+
+		paiPetronect = FN98_variavel("WD_PASTA_PETRONECT");
+
+		if(paiPetronect == "")
+		{
+			FN99_log("FN01", "ERROR", "Variavel WD_PASTA_PETRONECT nao configurada", dealId, numero);
+			return;
+		}
+
+		if(raizId == "")
+		{
+			raizId = FN97_garantir_pasta(numero, paiPetronect, WD_API, CONN);
+		}
+
+		if(raizId == "")
+		{
+			FN99_log("FN01", "ERROR", "Falha ao criar/localizar a pasta raiz", dealId, numero);
+			zoho.crm.updateRecord("Deals", dealId.toLong(), {"Sync_Erro":"FN01: falha na pasta raiz"});
+			return;
+		}
+
+		// ---- 3. As 6 subpastas ---------------------------------------------
+		criadas = 0;
+		reaproveitadas = 0;
+		falhas = List();
+
+		existentes = FN96_listar_subpastas(raizId, WD_API, CONN);
+
+		for each nome in SUBPASTAS
+		{
+			if(existentes.containsKey(nome))
+			{
+				reaproveitadas = reaproveitadas + 1;
+			}
+			else
+			{
+				novoId = FN97_garantir_pasta(nome, raizId, WD_API, CONN);
+				if(novoId != "")
+				{
+					criadas = criadas + 1;
+				}
+				else
+				{
+					falhas.add(nome);
+				}
+			}
+		}
+
+		// ---- 4. Gravar de volta no negocio ---------------------------------
+		upd = Map();
+		upd.put("URL_Pasta_WorkDrive", "https://workdrive.zoho.com/folder/" + raizId);
+		upd.put("Pasta_WorkDrive_Criada", true);
+		upd.put("Pasta_Criada", zoho.currenttime);
+
+		if(falhas.size() == 0)
+		{
+			upd.put("Sync_Erro", "");
+		}
+		else
+		{
+			upd.put("Sync_Erro", "FN01: nao criou " + falhas.toString());
+		}
+
+		zoho.crm.updateRecord("Deals", dealId.toLong(), upd);
+
+		nivel = if(falhas.size() == 0, "INFO", "WARN");
+		FN99_log("FN01", nivel, "raiz=" + raizId + " criadas=" + criadas + " reaproveitadas=" + reaproveitadas + " falhas=" + falhas.size(), dealId, numero);
+	}
+	catch (e)
+	{
+		FN99_log("FN01", "ERROR", "Excecao: " + e.toString(), dealId, "");
+		zoho.crm.updateRecord("Deals", dealId.toLong(), {"Sync_Erro":"FN01 excecao: " + e.toString()});
+	}
+}
+
+
+/* -----------------------------------------------------------------------------
+   FN97_garantir_pasta
+   Cria a pasta se nao existir sob o pai; devolve o folder_id em qualquer caso.
+   String vazia significa falha.
+   ----------------------------------------------------------------------------- */
+String automation.FN97_garantir_pasta(String nome, String parentId, String WD_API, String CONN)
+{
+	try
+	{
+		existentes = FN96_listar_subpastas(parentId, WD_API, CONN);
+		if(existentes.containsKey(nome))
+		{
+			return existentes.get(nome);
+		}
+
+		attributes = Map();
+		attributes.put("name", nome);
+		attributes.put("parent_id", parentId);
+
+		data = Map();
+		data.put("attributes", attributes);
+		data.put("type", "files");
+
+		body = Map();
+		body.put("data", data);
+
+		headers = Map();
+		headers.put("Accept", "application/vnd.api+json");
+		headers.put("Content-Type", "application/json");
+
+		resp = invokeurl
+		[
+			url: WD_API + "/files"
+			type: POST
+			parameters: body.toString()
+			headers: headers
+			connection: CONN
+		];
+
+		novo = ifnull(resp.get("data"), Map());
+		novoId = ifnull(novo.get("id"), "").toString();
+
+		if(novoId == "")
+		{
+			FN99_log("FN97", "ERROR", "Resposta sem id ao criar '" + nome + "': " + resp.toString(), "", "");
+		}
+
+		return novoId;
+	}
+	catch (e)
+	{
+		FN99_log("FN97", "ERROR", "Excecao ao criar '" + nome + "': " + e.toString(), "", "");
+		return "";
+	}
+}
+
+
+/* -----------------------------------------------------------------------------
+   FN96_listar_subpastas
+   Devolve um Map nome -> folder_id das subpastas diretas de parentId.
+   ----------------------------------------------------------------------------- */
+Map automation.FN96_listar_subpastas(String parentId, String WD_API, String CONN)
+{
+	saida = Map();
+
+	try
+	{
+		headers = Map();
+		headers.put("Accept", "application/vnd.api+json");
+
+		resp = invokeurl
+		[
+			url: WD_API + "/files/" + parentId + "/files"
+			type: GET
+			headers: headers
+			connection: CONN
+		];
+
+		itens = ifnull(resp.get("data"), List());
+
+		for each item in itens
+		{
+			attr = ifnull(item.get("attributes"), Map());
+			tipo = ifnull(attr.get("type"), "").toString();
+			nome = ifnull(attr.get("name"), "").toString();
+
+			if(tipo == "folder" && nome != "")
+			{
+				saida.put(nome, ifnull(item.get("id"), "").toString());
+			}
+		}
+	}
+	catch (e)
+	{
+		FN99_log("FN96", "WARN", "Falha ao listar " + parentId + ": " + e.toString(), "", "");
+	}
+
+	return saida;
+}
+
+
+/* -----------------------------------------------------------------------------
+   FN98_variavel  -- le uma variavel de organizacao do CRM
+   ----------------------------------------------------------------------------- */
+String automation.FN98_variavel(String apiName)
+{
+	try
+	{
+		v = zoho.crm.invokeConnector("crm.get", {"url":"https://www.zohoapis.com/crm/v5/settings/variables/" + apiName});
+		lista = ifnull(ifnull(v.get("response"), Map()).get("variables"), List());
+		if(lista.size() > 0)
+		{
+			return ifnull(lista.get(0).get("value"), "").toString();
+		}
+	}
+	catch (e)
+	{
+		info "FN98 falhou para " + apiName + ": " + e;
+	}
+	return "";
+}
+
+
+/* -----------------------------------------------------------------------------
+   FN99_log  -- grava em Petronect_Logs
+   Toda funcao deste pacote registra aqui. Falha nunca fica silenciosa.
+   ----------------------------------------------------------------------------- */
+void automation.FN99_log(String funcao, String nivel, String mensagem, String dealId, String numero)
+{
+	try
+	{
+		reg = Map();
+		reg.put("Name", funcao + " " + zoho.currenttime.toString("yyyy-MM-dd HH:mm:ss"));
+		reg.put("Funcao", funcao);
+		reg.put("Nivel", nivel);
+		reg.put("Mensagem", mensagem.left(1999));
+		reg.put("Data_Hora", zoho.currenttime);
+		reg.put("Numero_Certame", numero);
+
+		if(dealId != "")
+		{
+			reg.put("Negocio", dealId.toLong());
+		}
+
+		zoho.crm.createRecord("Petronect_Logs", reg);
+	}
+	catch (e)
+	{
+		info "FN99 nao conseguiu gravar log: " + e;
+	}
+}
