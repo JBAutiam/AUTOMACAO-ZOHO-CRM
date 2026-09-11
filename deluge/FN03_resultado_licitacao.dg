@@ -1,0 +1,366 @@
+/* =============================================================================
+   FN03_resultado_licitacao
+   ETAPA 3 — D+1 da data limite, colher o resultado e as propostas dos
+   concorrentes; guardar em "4 - RESULTADO DA LICITACAO" e "5 - CONCORRENTES",
+   uma subpasta por concorrente.
+
+   Onde roda : Zoho CRM -> Espaco do Desenvolvedor -> Funcoes,
+               agendada diariamente (ver SETUP.md)
+   Sem argumento: ela mesma varre os negocios elegiveis.
+
+   ----------------------------------------------------------------------------
+   LEIA ISTO ANTES DE LIGAR
+   ----------------------------------------------------------------------------
+   Todo o codigo abaixo e real e roda. A UNICA peca que nao esta implementada
+   e FN91_coletar_do_portal(), porque a Petronect nao tem API confirmada para
+   fornecedor — e a DP-01, aberta desde 19/08/2026.
+
+   Eu NAO escrevi endpoint ou nome de campo inventado ali de proposito. Ja
+   aconteceu neste projeto: o arquivo "PERGUNTA 10" trazia uma tabela de campos
+   que outra IA admitiu ter inventado, e construir em cima daquilo teria gravado
+   dado errado no CRM em silencio. Ver docs/integracao-petronect-api-deluge.md.
+
+   FN91 tem CONTRATO DEFINIDO (secao no fim do arquivo). Assim que a fonte for
+   resolvida, so ela muda — o resto deste arquivo continua igual.
+   ============================================================================= */
+
+void automation.FN03_resultado_licitacao()
+{
+	WD_API = "https://www.zohoapis.com/workdrive/api/v1";
+	CONN = "workdrive_conn";
+	CNPJ_AUTIAM = FN98_variavel("CNPJ_AUTIAM");
+
+	try
+	{
+		// ---- 1. Quem esta elegivel hoje ------------------------------------
+		// D+1: a data limite passou ontem ou antes, e ainda nao houve coleta.
+		limite = zoho.currentdate.subDay(1);
+
+		criterio = "(Status_Petronect:equals:Cotado)";
+		candidatos = zoho.crm.searchRecords("Deals", criterio, 1, 200);
+
+		elegiveis = List();
+
+		for each d in candidatos
+		{
+			dl = ifnull(d.get("Data_Limite_Proposta"), "");
+			sync = ifnull(d.get("Ultima_Sync_Petronect"), "");
+
+			if(dl != "" && sync == "")
+			{
+				if(dl.toDate() <= limite)
+				{
+					elegiveis.add(d);
+				}
+			}
+		}
+
+		FN99_log("FN03", "INFO", "Elegiveis hoje: " + elegiveis.size(), "", "");
+
+		// ---- 2. Um por um --------------------------------------------------
+		for each deal in elegiveis
+		{
+			dealId = deal.get("id").toString();
+			numero = ifnull(deal.get("Numero_Petronect"), "").toString();
+
+			if(numero == "")
+			{
+				continue;
+			}
+
+			try
+			{
+				FN03_um_certame(dealId, numero, deal, WD_API, CONN, CNPJ_AUTIAM);
+			}
+			catch (eu)
+			{
+				// Uma falha nao derruba o lote inteiro.
+				FN99_log("FN03", "ERROR", "Certame " + numero + ": " + eu.toString(), dealId, numero);
+				zoho.crm.updateRecord("Deals", dealId.toLong(), {"Sync_Erro":"FN03: " + eu.toString().left(200)});
+			}
+		}
+	}
+	catch (e)
+	{
+		FN99_log("FN03", "ERROR", "Excecao no lote: " + e.toString(), "", "");
+	}
+}
+
+
+/* -----------------------------------------------------------------------------
+   FN03_um_certame — todo o trabalho de uma oportunidade
+   ----------------------------------------------------------------------------- */
+void automation.FN03_um_certame(String dealId, String numero, Map deal, String WD_API, String CONN, String CNPJ_AUTIAM)
+{
+	// ---- A. Buscar no portal (ponto unico de contato com a Petronect) -------
+	pacote = FN91_coletar_do_portal(numero);
+
+	if(ifnull(pacote.get("ok"), false) != true)
+	{
+		motivo = ifnull(pacote.get("motivo"), "fonte do portal nao disponivel").toString();
+		FN99_log("FN03", "WARN", "Coleta nao realizada para " + numero + ": " + motivo, dealId, numero);
+		zoho.crm.updateRecord("Deals", dealId.toLong(), {"Sync_Erro":"FN03: " + motivo.left(200)});
+		return;
+	}
+
+	// ---- B. Pastas ---------------------------------------------------------
+	raizId = FN94_raiz_do_negocio(deal);
+
+	if(raizId == "")
+	{
+		FN01_estrutura_pastas(dealId);
+		deal = zoho.crm.getRecordById("Deals", dealId.toLong());
+		raizId = FN94_raiz_do_negocio(deal);
+	}
+
+	pastaResultado = FN97_garantir_pasta("4 - RESULTADO DA LICITACAO", raizId, WD_API, CONN);
+	pastaConcorrentes = FN97_garantir_pasta("5 - CONCORRENTES", raizId, WD_API, CONN);
+
+	hoje = zoho.currentdate.toString("yyyy-MM-dd");
+
+	// ---- C. Documentos do resultado -> pasta 4 -----------------------------
+	docsResultado = ifnull(pacote.get("documentos_resultado"), List());
+
+	for each doc in docsResultado
+	{
+		nome = numero + "_" + FN93_slug(ifnull(doc.get("tipo"), "RESULTADO").toString()) + "_" + hoje + FN90_ext(ifnull(doc.get("nome"), "").toString());
+		FN92_subir_arquivo(ifnull(doc.get("url"), "").toString(), nome, pastaResultado, WD_API, CONN);
+	}
+
+	// ---- D. Concorrentes -> pasta 5, uma subpasta por concorrente ----------
+	propostas = ifnull(pacote.get("propostas"), List());
+	gravadas = 0;
+	descartadas = 0;
+	nossoPreco = 0.0;
+	precoVencedor = 0.0;
+	pastasConc = Map();
+
+	for each p in propostas
+	{
+		razao = ifnull(p.get("proponente_razao_social"), "").toString().trim();
+		cnpj = ifnull(p.get("proponente_cnpj"), "").toString().trim();
+		preco = ifnull(p.get("preco_unitario"), 0).toDecimal();
+		item = ifnull(p.get("item_number"), 0).toLong();
+
+		// R1/R2 — so grava proposta com preco maior que zero.
+		// Zerado significa "nao cotou este item" ou desclassificado.
+		if(razao == "" || preco <= 0)
+		{
+			descartadas = descartadas + 1;
+			continue;
+		}
+
+		// Subpasta do concorrente: primeiro nome
+		primeiro = razao;
+		if(primeiro.contains(" "))
+		{
+			primeiro = primeiro.getPrefix(" ");
+		}
+		nomePasta = FN93_slug(primeiro);
+
+		if(!pastasConc.containsKey(nomePasta))
+		{
+			idc = FN97_garantir_pasta(nomePasta, pastaConcorrentes, WD_API, CONN);
+			pastasConc.put(nomePasta, idc);
+		}
+
+		// R6 — somos nos?
+		somosNos = false;
+		if(CNPJ_AUTIAM != "" && cnpj != "")
+		{
+			somosNos = (cnpj.replaceAll("[^0-9]", "", true) == CNPJ_AUTIAM.replaceAll("[^0-9]", "", true));
+		}
+
+		if(somosNos && preco > nossoPreco)
+		{
+			nossoPreco = preco;
+		}
+
+		if(ifnull(p.get("vencedor_do_item"), false) == true && preco > precoVencedor)
+		{
+			precoVencedor = preco;
+		}
+
+		// R3 — upsert por chave. Recoleta atualiza, nunca duplica.
+		chave = numero + "-" + item + "-" + if(cnpj != "", cnpj, FN93_slug(razao));
+
+		reg = Map();
+		reg.put("Name", chave);
+		reg.put("Chave_Proposta", chave);
+		reg.put("Negocio", dealId.toLong());
+		reg.put("Numero_Certame", numero);
+		reg.put("Item_Number", item);
+		reg.put("Proponente_Razao_Social", razao);
+		reg.put("Proponente_CNPJ", cnpj);
+		reg.put("Preco_Unitario", preco);
+		reg.put("Moeda", ifnull(p.get("moeda"), "BRL"));
+		reg.put("Vencedor_do_Item", ifnull(p.get("vencedor_do_item"), false));
+		reg.put("Somos_Nos", somosNos);
+		reg.put("Fonte_Coleta", ifnull(pacote.get("fonte"), "Mapa de Propostas"));
+		reg.put("Data_Coleta", zoho.currenttime);
+		// R4 — nada vindo do portal entra como conferido
+		reg.put("Conferido_Humano", false);
+
+		try
+		{
+			zoho.crm.upsertRecord("Petronect_Propostas", reg, {"duplicate_check_fields":{"Chave_Proposta"}});
+			gravadas = gravadas + 1;
+		}
+		catch (ep)
+		{
+			FN99_log("FN03", "WARN", "Nao gravou proposta " + chave + ": " + ep.toString(), dealId, numero);
+		}
+	}
+
+	// ---- E. Documentos dos concorrentes -> subpasta de cada um -------------
+	docsConc = ifnull(pacote.get("documentos_concorrentes"), List());
+
+	for each doc in docsConc
+	{
+		razao = ifnull(doc.get("proponente_razao_social"), "").toString().trim();
+
+		if(razao == "")
+		{
+			continue;
+		}
+
+		primeiro = razao;
+		if(primeiro.contains(" "))
+		{
+			primeiro = primeiro.getPrefix(" ");
+		}
+		nomePasta = FN93_slug(primeiro);
+
+		if(!pastasConc.containsKey(nomePasta))
+		{
+			pastasConc.put(nomePasta, FN97_garantir_pasta(nomePasta, pastaConcorrentes, WD_API, CONN));
+		}
+
+		destino = pastasConc.get(nomePasta);
+		nome = numero + "_" + nomePasta + "_" + FN93_slug(ifnull(doc.get("tipo"), "DOC").toString()) + "_" + hoje + FN90_ext(ifnull(doc.get("nome"), "").toString());
+
+		FN92_subir_arquivo(ifnull(doc.get("url"), "").toString(), nome, destino, WD_API, CONN);
+	}
+
+	// ---- F. Fechar no negocio ---------------------------------------------
+	upd = Map();
+	upd.put("Vencedor_Final", ifnull(pacote.get("vencedor_razao_social"), ""));
+	upd.put("CNPJ_Vencedor", ifnull(pacote.get("vencedor_cnpj"), ""));
+	upd.put("Valor_Homologado", ifnull(pacote.get("valor_homologado"), null));
+	upd.put("Fase_Petronect", ifnull(pacote.get("fase"), "Em Analise"));
+	upd.put("Ultima_Sync_Petronect", zoho.currenttime);
+	upd.put("Sync_Erro", "");
+
+	if(precoVencedor > 0 && nossoPreco > 0)
+	{
+		upd.put("Delta_Para_Vencedor_Pct", ((nossoPreco / precoVencedor) - 1) * 100);
+	}
+
+	// Stage nao e alterado aqui de proposito: encerrar negocio e decisao humana.
+	zoho.crm.updateRecord("Deals", dealId.toLong(), upd);
+
+	// ---- G. Tarefa de decisao de recurso -----------------------------------
+	if(nossoPreco > 0)
+	{
+		prazo = ifnull(pacote.get("prazo_recurso_ate"), "");
+		assunto = "RECURSO? - " + numero;
+		venc = zoho.currentdate.addBusinessDay(1);
+
+		if(prazo != "")
+		{
+			venc = prazo.toDate();
+			assunto = assunto + " - decidir ate " + venc.toString("dd/MM/yyyy");
+		}
+		else
+		{
+			// Nao inventa prazo legal. Sinaliza que nao foi confirmado.
+			assunto = "[PRAZO NAO CONFIRMADO] " + assunto;
+		}
+
+		t = Map();
+		t.put("Subject", assunto);
+		t.put("What_Id", dealId.toLong());
+		t.put("se_module", "Deals");
+		t.put("Status", "Not Started");
+		t.put("Priority", "High");
+		t.put("Due_Date", venc);
+		t.put("Tipo_Tarefa_Petronect", "Decisao de Recurso");
+		t.put("Send_Notification_Email", true);
+		t.put("Description", "Vencedor: " + ifnull(pacote.get("vencedor_razao_social"), "-") + "\n" + "Valor homologado: " + ifnull(pacote.get("valor_homologado"), "-") + "\n" + "Nosso preco: " + nossoPreco + "\n" + "Propostas gravadas: " + gravadas + " (descartadas por preco zero: " + descartadas + ")\n" + "Resultado: https://workdrive.zoho.com/folder/" + pastaResultado + "\n" + "Concorrentes: https://workdrive.zoho.com/folder/" + pastaConcorrentes);
+
+		zoho.crm.createRecord("Tasks", t);
+	}
+
+	FN99_log("FN03", "INFO", "Concluido " + numero + " | propostas=" + gravadas + " descartadas=" + descartadas + " concorrentes=" + pastasConc.size(), dealId, numero);
+}
+
+
+/* -----------------------------------------------------------------------------
+   FN90_ext -- devolve a extensao com ponto, ou vazio
+   ----------------------------------------------------------------------------- */
+String automation.FN90_ext(String nome)
+{
+	if(nome != null && nome.contains("."))
+	{
+		return "." + nome.getSuffix(".");
+	}
+	return "";
+}
+
+
+/* =============================================================================
+   FN91_coletar_do_portal  —  A PECA QUE FALTA (DP-01)
+   =============================================================================
+
+   CONTRATO DE SAIDA. Qualquer implementacao futura precisa devolver este Map:
+
+   {
+     "ok"                      : true | false,
+     "motivo"                  : String,      // so quando ok = false
+     "fonte"                   : "Mapa de Propostas" | "Ata" | "Relatorio de Divulgacao" | "Manual",
+     "fase"                    : "Em Analise" | "Homologada" | "Fracassada" | "Cancelada",
+     "vencedor_razao_social"   : String,
+     "vencedor_cnpj"           : String,
+     "valor_homologado"        : Decimal,
+     "prazo_recurso_ate"       : String "yyyy-MM-dd" ou "",   // vazio se nao achou
+     "documentos_resultado"    : [ {"nome":"ata.pdf","tipo":"ATA","url":"<https>"} ],
+     "documentos_concorrentes" : [ {"proponente_razao_social":"X","nome":"prop.pdf","tipo":"PROPOSTA","url":"<https>"} ],
+     "propostas"               : [ {"item_number":1,"proponente_razao_social":"X",
+                                    "proponente_cnpj":"00...","preco_unitario":1234.56,
+                                    "moeda":"BRL","vencedor_do_item":false} ]
+   }
+
+   REGRAS QUE A IMPLEMENTACAO PRECISA RESPEITAR:
+     - Campo que nao deu para ler fica VAZIO. Nunca inferir CNPJ da razao social.
+     - Preco ausente ou zero nao vira proposta (quem filtra e FN03, mas nao
+       invente zero para "preencher").
+     - Nao devolver ok=true com lista vazia: isso e ok=false com motivo.
+
+   TRES CAMINHOS POSSIVEIS, em ordem de preferencia:
+
+   1) API oficial da Petronect para fornecedor, se existir.
+      Precisa: documentacao real (Swagger/OpenAPI, colecao Postman ou manual com
+      os nomes de campo verdadeiros) + credencial. E isso, e so isso, que a
+      DP-01 pergunta desde 19/08.
+
+   2) O e-mail "Relatorio Divulgado ID <n>", se ele trouxer o mapa anexado.
+      Caminho mais barato: nao exige login no portal. Da para responder abrindo
+      dois ou tres relatorios ja arquivados em /Inbox/NEGOCIOS/PETRONECT/.
+      Nesse caso FN91 le o anexo em vez de chamar o portal.
+
+   3) Coleta assistida por navegador: uma pessoa autentica no My Petronect e a
+      sessao logada e operada para baixar o mapa. Vira arquivo, e FN91 le o
+      arquivo. Funciona, mas nao e desassistido.
+
+   Enquanto nenhum dos tres estiver resolvido, esta funcao devolve ok=false —
+   de proposito. O resto da FN03 ja esta pronto e passa a funcionar sem
+   alteracao no minuto em que FN91 devolver dado real.
+   ============================================================================= */
+
+Map automation.FN91_coletar_do_portal(String numero)
+{
+	saida = Map();
+	saida.put("ok", false);
+	saida.put("motivo", "DP-01 em aberto: fonte de dados do portal ainda nao definida. Ver o cabecalho de FN91 em FN03_resultado_licitacao.dg");
+	return saida;
+}
