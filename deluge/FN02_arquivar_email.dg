@@ -1,0 +1,319 @@
+/* =============================================================================
+   FN02_arquivar_email
+   ETAPA 4 (e a parte da ETAPA 2 que chega por e-mail)
+
+   Roteia um e-mail da Petronect para a subpasta certa da oportunidade,
+   sobe os anexos e, quando o e-mail exige acao, cria tarefa imediata no CRM.
+
+   Onde roda : chamada como Custom Function de dentro do Zoho Flow
+               (gatilho: Zoho Mail -> novo e-mail na caixa jbueno@ / gmartinez@)
+   Por que no Flow e nao no CRM: Deluge de CRM nao tem gatilho de chegada de
+   e-mail. O Flow observa a caixa e chama esta funcao com os dados ja extraidos.
+
+   Argumentos vindos do Flow:
+     assunto     String
+     remetente   String
+     corpo       String   (texto puro, usado so para achar numero quando o
+                           assunto nao tem)
+     anexos      String   JSON: [{"nome":"x.pdf","url":"<download url>"}, ...]
+     messageId   String   id da mensagem no Zoho Mail (rastreabilidade)
+
+   Requisitos: conexao "workdrive_conn". Ver SETUP.md.
+   ============================================================================= */
+
+void automation.FN02_arquivar_email(String assunto, String remetente, String corpo, String anexos, String messageId)
+{
+	WD_API = "https://www.zohoapis.com/workdrive/api/v1";
+	CONN = "workdrive_conn";
+
+	try
+	{
+		// ---- 1. Achar o numero do certame ----------------------------------
+		// Licao registrada no projeto: o numero pode estar em qualquer posicao.
+		// Extrair 10 digitos, nunca comparar a string inteira.
+		numero = FN95_extrair_numero(assunto);
+
+		if(numero == "")
+		{
+			numero = FN95_extrair_numero(corpo);
+		}
+
+		if(numero == "")
+		{
+			FN99_log("FN02", "WARN", "Sem numero identificavel. Assunto: " + assunto.left(200), "", "");
+			return;
+		}
+
+		// ---- 2. Achar o negocio --------------------------------------------
+		busca = zoho.crm.searchRecords("Deals", "(Numero_Petronect:equals:" + numero + ")");
+
+		if(busca.size() == 0)
+		{
+			// E-mail de oportunidade que ainda nao virou negocio: nao inventa
+			// registro aqui. Quem cria e o Fluxo A, com a trava de dedup (DP-07).
+			FN99_log("FN02", "WARN", "Certame " + numero + " sem negocio no CRM - e-mail nao arquivado", "", numero);
+			return;
+		}
+
+		deal = busca.get(0);
+		dealId = deal.get("id").toString();
+
+		raizId = FN94_raiz_do_negocio(deal);
+
+		if(raizId == "")
+		{
+			// Pasta ainda nao existe: cria agora, reaproveitando a FN01.
+			FN01_estrutura_pastas(dealId);
+			deal = zoho.crm.getRecordById("Deals", dealId.toLong());
+			raizId = FN94_raiz_do_negocio(deal);
+		}
+
+		if(raizId == "")
+		{
+			FN99_log("FN02", "ERROR", "Sem pasta no WorkDrive para " + numero, dealId, numero);
+			return;
+		}
+
+		// ---- 3. Classificar o e-mail ---------------------------------------
+		// Decide a subpasta de destino e se exige acao humana.
+		asUp = assunto.toUpperCase();
+
+		destino = "1 - DOC CLIENTE";
+		exigeAcao = false;
+		rotulo = "Documento do certame";
+
+		if(asUp.contains("RELATORIO DIVULGADO") || asUp.contains("RELATÓRIO DIVULGADO"))
+		{
+			destino = "4 - RESULTADO DA LICITACAO";
+			exigeAcao = true;
+			rotulo = "Resultado divulgado";
+		}
+		else if(asUp.startsWith("SALA "))
+		{
+			destino = "6 - COMUNICADOS CLIENTE";
+			exigeAcao = true;
+			rotulo = "Mensagem de sala";
+		}
+		else if(asUp.contains("ESCLARECIMENTO") || asUp.contains("DILIGENCIA") || asUp.contains("DILIGÊNCIA") || asUp.contains("COMUNICADO"))
+		{
+			destino = "6 - COMUNICADOS CLIENTE";
+			exigeAcao = true;
+			rotulo = "Pedido de esclarecimento";
+		}
+		else if(asUp.contains("ADENDO") || asUp.contains("PRORROGA"))
+		{
+			destino = "1 - DOC CLIENTE";
+			exigeAcao = true;
+			rotulo = "Adendo / prorrogacao";
+		}
+
+		destinoId = FN97_garantir_pasta(destino, raizId, WD_API, CONN);
+
+		if(destinoId == "")
+		{
+			FN99_log("FN02", "ERROR", "Subpasta '" + destino + "' indisponivel para " + numero, dealId, numero);
+			return;
+		}
+
+		// ---- 4. Subir os anexos --------------------------------------------
+		hoje = zoho.currentdate.toString("yyyy-MM-dd");
+		subidos = 0;
+		lista = List();
+
+		try
+		{
+			lista = anexos.toJsonList();
+		}
+		catch (ea)
+		{
+			FN99_log("FN02", "WARN", "Anexos em formato inesperado: " + anexos.left(300), dealId, numero);
+		}
+
+		for each a in lista
+		{
+			nomeOrig = ifnull(a.get("nome"), "arquivo").toString();
+			urlDown = ifnull(a.get("url"), "").toString();
+
+			if(urlDown == "")
+			{
+				continue;
+			}
+
+			ext = "";
+			if(nomeOrig.contains("."))
+			{
+				ext = "." + nomeOrig.getSuffix(".");
+			}
+
+			nomeFinal = numero + "_" + FN93_slug(rotulo) + "_" + hoje + ext;
+
+			okUp = FN92_subir_arquivo(urlDown, nomeFinal, destinoId, WD_API, CONN);
+
+			if(okUp)
+			{
+				subidos = subidos + 1;
+
+				// Registro no modulo de anexos, com chave idempotente
+				try
+				{
+					reg = Map();
+					reg.put("Name", nomeFinal);
+					reg.put("Chave_Anexo", numero + "|" + destino + "|" + nomeFinal);
+					reg.put("Negocio", dealId.toLong());
+					reg.put("Numero_Certame", numero);
+					reg.put("Nome_Arquivo", nomeFinal);
+					reg.put("Tipo_Anexo", rotulo);
+					reg.put("Data_Coleta", zoho.currenttime);
+					zoho.crm.createRecord("Petronect_Anexos", reg);
+				}
+				catch (er)
+				{
+					// Chave duplicada = ja registrado. Nao e erro.
+					info "FN02 anexo ja registrado: " + nomeFinal;
+				}
+			}
+		}
+
+		// ---- 5. Tarefa imediata quando exige acao --------------------------
+		if(exigeAcao)
+		{
+			t = Map();
+			t.put("Subject", "ACAO PETROBRAS - " + numero + " - " + rotulo);
+			t.put("What_Id", dealId.toLong());
+			t.put("se_module", "Deals");
+			t.put("Status", "Not Started");
+			t.put("Priority", "Highest");
+			t.put("Due_Date", zoho.currentdate);
+			t.put("Tipo_Tarefa_Petronect", "Acao Petrobras");
+			t.put("Send_Notification_Email", true);
+			t.put("Description", rotulo + " recebido em " + zoho.currenttime.toString("dd/MM/yyyy HH:mm") + ".\n" + "Assunto: " + assunto.left(400) + "\n" + "Remetente: " + remetente + "\n" + "Arquivos em: https://workdrive.zoho.com/folder/" + destinoId + "\n" + "MessageId: " + messageId);
+
+			zoho.crm.createRecord("Tasks", t);
+		}
+
+		FN99_log("FN02", "INFO", rotulo + " -> " + destino + " | anexos=" + subidos + " | tarefa=" + exigeAcao, dealId, numero);
+	}
+	catch (e)
+	{
+		FN99_log("FN02", "ERROR", "Excecao: " + e.toString(), "", "");
+	}
+}
+
+
+/* -----------------------------------------------------------------------------
+   FN95_extrair_numero -- 10 digitos em qualquer posicao do texto
+   ----------------------------------------------------------------------------- */
+String automation.FN95_extrair_numero(String texto)
+{
+	if(texto == null || texto == "")
+	{
+		return "";
+	}
+
+	limpo = texto.replaceAll("[^0-9]", " ", true);
+	pedacos = limpo.toList(" ");
+
+	for each p in pedacos
+	{
+		pp = p.trim();
+		if(pp.length() == 10 && pp.startsWith("70"))
+		{
+			return pp;
+		}
+	}
+
+	// Segunda passada: qualquer bloco de 10 digitos
+	for each p in pedacos
+	{
+		pp = p.trim();
+		if(pp.length() == 10)
+		{
+			return pp;
+		}
+	}
+
+	return "";
+}
+
+
+/* -----------------------------------------------------------------------------
+   FN94_raiz_do_negocio -- extrai o folder_id de URL_Pasta_WorkDrive
+   ----------------------------------------------------------------------------- */
+String automation.FN94_raiz_do_negocio(Map deal)
+{
+	u = ifnull(deal.get("URL_Pasta_WorkDrive"), "").toString();
+
+	if(u == "" || !u.contains("/folder/"))
+	{
+		return "";
+	}
+
+	id = u.getSuffix("/folder/").trim();
+
+	if(id.contains("/"))
+	{
+		id = id.getPrefix("/");
+	}
+	if(id.contains("?"))
+	{
+		id = id.getPrefix("?");
+	}
+
+	return id;
+}
+
+
+/* -----------------------------------------------------------------------------
+   FN93_slug -- nome de arquivo sem acento, espaco ou caractere especial
+   Padrao do POP: underline entre campos, sem acento.
+   ----------------------------------------------------------------------------- */
+String automation.FN93_slug(String texto)
+{
+	s = texto.toUpperCase();
+	s = s.replaceAll("[ÁÀÂÃÄ]", "A", true);
+	s = s.replaceAll("[ÉÈÊË]", "E", true);
+	s = s.replaceAll("[ÍÌÎÏ]", "I", true);
+	s = s.replaceAll("[ÓÒÔÕÖ]", "O", true);
+	s = s.replaceAll("[ÚÙÛÜ]", "U", true);
+	s = s.replaceAll("Ç", "C", true);
+	s = s.replaceAll("[^A-Z0-9]", "_", true);
+	s = s.replaceAll("_+", "_", true);
+	return s;
+}
+
+
+/* -----------------------------------------------------------------------------
+   FN92_subir_arquivo
+   Baixa de urlOrigem e sobe para a pasta destino do WorkDrive.
+   override-name-exist=true faz o WorkDrive versionar em vez de duplicar.
+   ----------------------------------------------------------------------------- */
+Boolean automation.FN92_subir_arquivo(String urlOrigem, String nomeFinal, String destinoId, String WD_API, String CONN)
+{
+	try
+	{
+		arq = invokeurl
+		[
+			url: urlOrigem
+			type: GET
+		];
+
+		up = invokeurl
+		[
+			url: WD_API + "/upload?filename=" + zoho.encryption.urlEncode(nomeFinal) + "&parent_id=" + destinoId + "&override-name-exist=true"
+			type: POST
+			files: arq
+			connection: CONN
+		];
+
+		if(up != null)
+		{
+			return true;
+		}
+	}
+	catch (e)
+	{
+		FN99_log("FN92", "ERROR", "Falha ao subir '" + nomeFinal + "': " + e.toString(), "", "");
+	}
+
+	return false;
+}
